@@ -7,6 +7,19 @@ import {
   type AuthResponse,
   type SafeUser,
 } from "../../services/auth.service.ts";
+import {
+  createTicket,
+  getTicketById,
+  getTickets,
+  updateTicket,
+  deleteTicket,
+  assignTicket,
+  addComment,
+  type CreateTicketInput,
+  type UpdateTicketInput,
+  type TicketResult,
+  type CommentResult,
+} from "../../services/ticket.service.ts";
 import type { GraphQLContext } from "../../utils/auth.ts";
 
 export const resolvers = {
@@ -22,6 +35,20 @@ export const resolvers = {
       }
       return getMe(context.user.userId);
     },
+    ticket: async (
+      _parent: unknown,
+      args: { id: string },
+      context: GraphQLContext
+    ): Promise<TicketResult> => {
+      return getTicketById(args.id, context.user);
+    },
+    tickets: async (
+      _parent: unknown,
+      _args: unknown,
+      context: GraphQLContext
+    ): Promise<TicketResult[]> => {
+      return getTickets(context.user);
+    },
   },
   Mutation: {
     register: async (
@@ -35,6 +62,41 @@ export const resolvers = {
       args: LoginInput
     ): Promise<AuthResponse> => {
       return login(args);
+    },
+    createTicket: async (
+      _parent: unknown,
+      args: CreateTicketInput,
+      context: GraphQLContext
+    ): Promise<TicketResult> => {
+      return createTicket(args, context.user);
+    },
+    updateTicket: async (
+      _parent: unknown,
+      args: UpdateTicketInput,
+      context: GraphQLContext
+    ): Promise<TicketResult> => {
+      return updateTicket(args, context.user);
+    },
+    deleteTicket: async (
+      _parent: unknown,
+      args: { id: string },
+      context: GraphQLContext
+    ): Promise<boolean> => {
+      return deleteTicket(args.id, context.user);
+    },
+    assignTicket: async (
+      _parent: unknown,
+      args: { ticketId: string; agentId: string },
+      context: GraphQLContext
+    ): Promise<TicketResult> => {
+      return assignTicket(args.ticketId, args.agentId, context.user);
+    },
+    addComment: async (
+      _parent: unknown,
+      args: { ticketId: string; body: string },
+      context: GraphQLContext
+    ): Promise<CommentResult> => {
+      return addComment(args.ticketId, args.body, context.user);
     },
   },
 };
