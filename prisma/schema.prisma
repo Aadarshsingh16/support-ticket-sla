@@ -1,0 +1,106 @@
+// Prisma schema for Support Ticket & SLA Tracker
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  REPORTER
+  AGENT
+}
+
+enum TicketPriority {
+  URGENT
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(REPORTER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  reportedTickets Ticket[]  @relation("TicketReporter")
+  assignedTickets Ticket[]  @relation("TicketAssignee")
+  comments        Comment[]
+
+  @@map("users")
+}
+
+model Ticket {
+  id               String         @id @default(cuid())
+  title            String
+  description      String
+  priority         TicketPriority @default(MEDIUM)
+  status           TicketStatus   @default(OPEN)
+  reporterId       String
+  assigneeId       String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  firstRespondedAt DateTime?
+  resolvedAt       DateTime?
+
+  // Relations
+  reporter User      @relation("TicketReporter", fields: [reporterId], references: [id])
+  assignee User?     @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  comments Comment[]
+
+  // Indexes for common filtering and ordering operations
+  @@index([status])
+  @@index([priority])
+  @@index([reporterId])
+  @@index([assigneeId])
+  @@index([createdAt])
+  @@map("tickets")
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  // Relations
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User   @relation(fields: [authorId], references: [id])
+
+  // Index for fetching all comments on a ticket
+  @@index([ticketId])
+  @@map("comments")
+}
+
+model Holiday {
+  id   String   @id @default(cuid())
+  date DateTime @unique @db.Date
+  name String
+
+  @@map("holidays")
+}
