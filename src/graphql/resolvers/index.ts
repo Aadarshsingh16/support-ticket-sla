@@ -17,7 +17,9 @@ import {
   addComment,
   type CreateTicketInput,
   type UpdateTicketInput,
+  type GetTicketsArgs,
   type TicketResult,
+  type TicketConnection,
   type CommentResult,
 } from "../../services/ticket.service.ts";
 import type { GraphQLContext } from "../../utils/auth.ts";
@@ -44,10 +46,10 @@ export const resolvers = {
     },
     tickets: async (
       _parent: unknown,
-      _args: unknown,
+      args: GetTicketsArgs,
       context: GraphQLContext
-    ): Promise<TicketResult[]> => {
-      return getTickets(context.user);
+    ): Promise<TicketConnection> => {
+      return getTickets(args, context.user);
     },
   },
   Mutation: {

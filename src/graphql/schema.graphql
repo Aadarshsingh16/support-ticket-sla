@@ -66,6 +66,16 @@ type Ticket {
   sla: SLAInfo!
 }
 
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+type TicketConnection {
+  nodes: [Ticket!]!
+  pageInfo: PageInfo!
+}
+
 type AuthPayload {
   token: String!
   user: User!
@@ -75,7 +85,14 @@ type Query {
   health: String!
   me: User
   ticket(id: ID!): Ticket
-  tickets: [Ticket!]!
+  tickets(
+    first: Int
+    after: String
+    search: String
+    status: TicketStatus
+    priority: TicketPriority
+    assigneeId: ID
+  ): TicketConnection!
 }
 
 type Mutation {

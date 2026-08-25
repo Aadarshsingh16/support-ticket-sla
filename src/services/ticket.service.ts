@@ -7,6 +7,7 @@ import {
   type User,
   type Ticket,
   type Comment,
+  type Prisma,
 } from "../../generated/prisma/client.ts";
 import type { AuthTokenPayload } from "../utils/auth.ts";
 import {
@@ -65,6 +66,25 @@ export interface TicketResult {
   sla: SLAInfo;
 }
 
+export interface PageInfo {
+  hasNextPage: boolean;
+  endCursor: string | null;
+}
+
+export interface TicketConnection {
+  nodes: TicketResult[];
+  pageInfo: PageInfo;
+}
+
+export interface GetTicketsArgs {
+  first?: number | null;
+  after?: string | null;
+  search?: string | null;
+  status?: TicketStatus | null;
+  priority?: TicketPriority | null;
+  assigneeId?: string | null;
+}
+
 type TicketWithRelations = Ticket & {
   reporter: User;
   assignee: User | null;
@@ -72,6 +92,55 @@ type TicketWithRelations = Ticket & {
     author: User;
   })[];
 };
+
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 50;
+
+interface DecodedCursor {
+  createdAt: string;
+  id: string;
+}
+
+export function encodeCursor(ticket: { createdAt: Date | string; id: string }): string {
+  const isoString =
+    ticket.createdAt instanceof Date
+      ? ticket.createdAt.toISOString()
+      : ticket.createdAt;
+  const payload: DecodedCursor = {
+    createdAt: isoString,
+    id: ticket.id,
+  };
+  return Buffer.from(JSON.stringify(payload)).toString("base64");
+}
+
+export function decodeCursor(cursor: string): { createdAt: Date; id: string } {
+  try {
+    const json = Buffer.from(cursor, "base64").toString("utf-8");
+    const parsed = JSON.parse(json) as unknown;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof (parsed as Record<string, unknown>)["createdAt"] !== "string" ||
+      typeof (parsed as Record<string, unknown>)["id"] !== "string"
+    ) {
+      throw new Error("Invalid cursor shape");
+    }
+    const createdAt = new Date(
+      (parsed as Record<string, unknown>)["createdAt"] as string
+    );
+    if (isNaN(createdAt.getTime())) {
+      throw new Error("Invalid cursor date");
+    }
+    return {
+      createdAt,
+      id: (parsed as Record<string, unknown>)["id"] as string,
+    };
+  } catch {
+    throw new GraphQLError("Invalid cursor provided.", {
+      extensions: { code: "BAD_USER_INPUT", field: "after" },
+    });
+  }
+}
 
 function formatUser(user: User): SafeUserResult {
   return {
@@ -199,7 +268,6 @@ export async function getTicketById(
     });
   }
 
-  // Authorization check based on role
   if (user.role === Role.REPORTER && ticket.reporterId !== user.userId) {
     throw new GraphQLError("You do not have permission to view this ticket.", {
       extensions: { code: "FORBIDDEN" },
@@ -216,42 +284,134 @@ export async function getTicketById(
 }
 
 export async function getTickets(
+  args: GetTicketsArgs,
   authUser: AuthTokenPayload | null
-): Promise<TicketResult[]> {
+): Promise<TicketConnection> {
   const user = assertAuthenticated(authUser);
 
-  let tickets: TicketWithRelations[] = [];
+  // 1. Validate page size (first)
+  let limit = DEFAULT_PAGE_SIZE;
+  if (args.first !== undefined && args.first !== null) {
+    if (args.first <= 0 || args.first > MAX_PAGE_SIZE || !Number.isInteger(args.first)) {
+      throw new GraphQLError(
+        `'first' must be a positive integer between 1 and ${MAX_PAGE_SIZE}.`,
+        { extensions: { code: "BAD_USER_INPUT", field: "first" } }
+      );
+    }
+    limit = args.first;
+  }
 
+  const andConditions: Prisma.TicketWhereInput[] = [];
+
+  // 2. Base authorization scope (REPORTER sees own, AGENT sees assigned)
   if (user.role === Role.REPORTER) {
-    tickets = await prisma.ticket.findMany({
-      where: { reporterId: user.userId },
-      include: {
-        reporter: true,
-        assignee: true,
-        comments: {
-          include: { author: true },
-          orderBy: { createdAt: "asc" },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    andConditions.push({ reporterId: user.userId });
   } else if (user.role === Role.AGENT) {
-    tickets = await prisma.ticket.findMany({
-      where: { assigneeId: user.userId },
-      include: {
-        reporter: true,
-        assignee: true,
-        comments: {
-          include: { author: true },
-          orderBy: { createdAt: "asc" },
+    andConditions.push({ assigneeId: user.userId });
+  }
+
+  // 3. Assignee filter validation & constraint
+  if (args.assigneeId !== undefined && args.assigneeId !== null) {
+    const targetAgent = await prisma.user.findUnique({
+      where: { id: args.assigneeId },
+    });
+    if (!targetAgent) {
+      throw new GraphQLError("Assignee user not found.", {
+        extensions: { code: "NOT_FOUND", field: "assigneeId" },
+      });
+    }
+    andConditions.push({ assigneeId: args.assigneeId });
+  }
+
+  // 4. Status filter
+  if (args.status !== undefined && args.status !== null) {
+    if (!Object.values(TicketStatus).includes(args.status)) {
+      throw new GraphQLError("Invalid ticket status filter.", {
+        extensions: { code: "BAD_USER_INPUT", field: "status" },
+      });
+    }
+    andConditions.push({ status: args.status });
+  }
+
+  // 5. Priority filter
+  if (args.priority !== undefined && args.priority !== null) {
+    if (!Object.values(TicketPriority).includes(args.priority)) {
+      throw new GraphQLError("Invalid ticket priority filter.", {
+        extensions: { code: "BAD_USER_INPUT", field: "priority" },
+      });
+    }
+    andConditions.push({ priority: args.priority });
+  }
+
+  // 6. Search filter (case-insensitive substring in title OR description)
+  // Whitespace-only search is treated safely as no filter
+  if (args.search !== undefined && args.search !== null) {
+    const trimmedSearch = args.search.trim();
+    if (trimmedSearch.length > 0) {
+      andConditions.push({
+        OR: [
+          { title: { contains: trimmedSearch, mode: "insensitive" } },
+          { description: { contains: trimmedSearch, mode: "insensitive" } },
+        ],
+      });
+    }
+  }
+
+  // 7. Cursor pagination condition (createdAt DESC, id DESC)
+  if (args.after) {
+    const cursor = decodeCursor(args.after);
+    andConditions.push({
+      OR: [
+        { createdAt: { lt: cursor.createdAt } },
+        {
+          createdAt: cursor.createdAt,
+          id: { lt: cursor.id },
         },
-      },
-      orderBy: { createdAt: "desc" },
+      ],
     });
   }
 
+  const where: Prisma.TicketWhereInput =
+    andConditions.length > 0 ? { AND: andConditions } : {};
+
+  // Fetch limit + 1 items to determine hasNextPage
+  const tickets = await prisma.ticket.findMany({
+    where,
+    include: {
+      reporter: true,
+      assignee: true,
+      comments: {
+        include: { author: true },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+    orderBy: [
+      { createdAt: "desc" },
+      { id: "desc" },
+    ],
+    take: limit + 1,
+  });
+
+  const hasNextPage = tickets.length > limit;
+  const nodesToReturn = hasNextPage ? tickets.slice(0, limit) : tickets;
+
   const holidays = await fetchHolidaysSet();
-  return Promise.all(tickets.map((t) => formatTicket(t, holidays)));
+  const formattedNodes = await Promise.all(
+    nodesToReturn.map((t) => formatTicket(t, holidays))
+  );
+
+  const endCursor =
+    nodesToReturn.length > 0
+      ? encodeCursor(nodesToReturn[nodesToReturn.length - 1]!)
+      : null;
+
+  return {
+    nodes: formattedNodes,
+    pageInfo: {
+      hasNextPage,
+      endCursor,
+    },
+  };
 }
 
 export async function updateTicket(
