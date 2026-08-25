@@ -8,6 +8,7 @@ const JWT_EXPIRES_IN = "1d";
 export interface AuthTokenPayload {
   userId: string;
   role: Role;
+  email?: string;
 }
 
 export interface GraphQLContext {
@@ -15,13 +16,15 @@ export interface GraphQLContext {
   prisma: PrismaClient;
 }
 
+export const JWT_SECRET = process.env["JWT_SECRET"] || "support_ticket_sla_dev_secret_key_2026";
+
 function getJwtSecret(): string {
   const secret = process.env["JWT_SECRET"];
   if (!secret) {
     if (process.env["NODE_ENV"] === "production") {
       throw new Error("JWT_SECRET environment variable is missing in production.");
     }
-    return "support_ticket_sla_dev_secret_key_2026";
+    return JWT_SECRET;
   }
   return secret;
 }
@@ -47,6 +50,7 @@ export function verifyToken(token: string): AuthTokenPayload | null {
       return {
         userId: decoded["userId"] as string,
         role: decoded["role"] as Role,
+        email: typeof decoded["email"] === "string" ? decoded["email"] : undefined,
       };
     }
     return null;
@@ -55,7 +59,7 @@ export function verifyToken(token: string): AuthTokenPayload | null {
   }
 }
 
-export function extractAuthUser(authHeader?: string | null): AuthTokenPayload | null {
+export function extractTokenFromHeader(authHeader?: string | null): string | null {
   if (!authHeader) {
     return null;
   }
@@ -65,7 +69,11 @@ export function extractAuthUser(authHeader?: string | null): AuthTokenPayload | 
     return null;
   }
 
-  const token = parts[1];
+  return parts[1] || null;
+}
+
+export function extractAuthUser(authHeader?: string | null): AuthTokenPayload | null {
+  const token = extractTokenFromHeader(authHeader);
   if (!token) {
     return null;
   }
