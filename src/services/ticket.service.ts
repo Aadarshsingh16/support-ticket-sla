@@ -13,6 +13,7 @@ import type { AuthTokenPayload } from "../utils/auth.ts";
 import {
   calculateTicketSLA,
   fetchHolidaysSet,
+  SLAState,
   type SLAInfo,
 } from "./sla.service.ts";
 
@@ -83,6 +84,7 @@ export interface GetTicketsArgs {
   status?: TicketStatus | null;
   priority?: TicketPriority | null;
   assigneeId?: string | null;
+  slaState?: SLAState | null;
 }
 
 type TicketWithRelations = Ticket & {
@@ -357,7 +359,16 @@ export async function getTickets(
     }
   }
 
-  // 7. Cursor pagination condition (createdAt DESC, id DESC)
+  // 7. SLA State filter validation
+  if (args.slaState !== undefined && args.slaState !== null) {
+    if (!Object.values(SLAState).includes(args.slaState)) {
+      throw new GraphQLError("Invalid SLA state filter provided.", {
+        extensions: { code: "BAD_USER_INPUT", field: "slaState" },
+      });
+    }
+  }
+
+  // 8. Cursor pagination condition (createdAt DESC, id DESC)
   if (args.after) {
     const cursor = decodeCursor(args.after);
     andConditions.push({
@@ -371,10 +382,109 @@ export async function getTickets(
     });
   }
 
+  const holidays = await fetchHolidaysSet();
+
+  // If slaState filter is provided, dynamically evaluate candidate tickets
+  if (args.slaState) {
+    const targetSlaState = args.slaState;
+    const matchedTickets: TicketWithRelations[] = [];
+    const batchSize = Math.max(limit * 3, 50);
+    let currentConditions = [...andConditions];
+    let hasMoreCandidates = true;
+
+    while (matchedTickets.length <= limit && hasMoreCandidates) {
+      const candidates: TicketWithRelations[] = await prisma.ticket.findMany({
+        where: { AND: currentConditions },
+        include: {
+          reporter: true,
+          assignee: true,
+          comments: {
+            include: { author: true },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+        orderBy: [
+          { createdAt: "desc" },
+          { id: "desc" },
+        ],
+        take: batchSize,
+      });
+
+      if (candidates.length === 0) {
+        break;
+      }
+
+      if (candidates.length < batchSize) {
+        hasMoreCandidates = false;
+      }
+
+      for (const candidate of candidates) {
+        const sla = await calculateTicketSLA(candidate, holidays);
+        if (
+          sla.responseState === targetSlaState ||
+          sla.resolutionState === targetSlaState
+        ) {
+          matchedTickets.push(candidate);
+          if (matchedTickets.length > limit) {
+            break;
+          }
+        }
+      }
+
+      const lastCandidate = candidates[candidates.length - 1];
+      if (lastCandidate && hasMoreCandidates && matchedTickets.length <= limit) {
+        // Exclude previous cursor condition and advance with lastCandidate cursor
+        const baseConditions = andConditions.filter((c) => {
+          if ("OR" in c && Array.isArray(c.OR)) {
+            const firstBranch = c.OR[0];
+            return !(firstBranch && "createdAt" in firstBranch);
+          }
+          return true;
+        });
+
+        baseConditions.push({
+          OR: [
+            { createdAt: { lt: lastCandidate.createdAt } },
+            {
+              createdAt: lastCandidate.createdAt,
+              id: { lt: lastCandidate.id },
+            },
+          ],
+        });
+
+        currentConditions = baseConditions;
+      } else {
+        break;
+      }
+    }
+
+    const hasNextPage = matchedTickets.length > limit;
+    const nodesToReturn = hasNextPage
+      ? matchedTickets.slice(0, limit)
+      : matchedTickets;
+
+    const formattedNodes = await Promise.all(
+      nodesToReturn.map((t) => formatTicket(t, holidays))
+    );
+
+    const endCursor =
+      nodesToReturn.length > 0
+        ? encodeCursor(nodesToReturn[nodesToReturn.length - 1]!)
+        : null;
+
+    return {
+      nodes: formattedNodes,
+      pageInfo: {
+        hasNextPage,
+        endCursor,
+      },
+    };
+  }
+
+  // Standard path when slaState is not filtered
   const where: Prisma.TicketWhereInput =
     andConditions.length > 0 ? { AND: andConditions } : {};
 
-  // Fetch limit + 1 items to determine hasNextPage
   const tickets = await prisma.ticket.findMany({
     where,
     include: {
@@ -395,7 +505,6 @@ export async function getTickets(
   const hasNextPage = tickets.length > limit;
   const nodesToReturn = hasNextPage ? tickets.slice(0, limit) : tickets;
 
-  const holidays = await fetchHolidaysSet();
   const formattedNodes = await Promise.all(
     nodesToReturn.map((t) => formatTicket(t, holidays))
   );

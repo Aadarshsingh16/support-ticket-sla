@@ -50,6 +50,12 @@ describe("Unit Tests: GraphQL Resolvers", () => {
         resolvers.Query.tickets({}, {}, unauthenticatedContext)
       ).rejects.toThrow("You must be logged in to perform this action.");
     });
+
+    it("Query.dashboard should reject unauthenticated requests", async () => {
+      expect(
+        resolvers.Query.dashboard({}, {}, unauthenticatedContext)
+      ).rejects.toThrow("You must be logged in to perform this action.");
+    });
   });
 
   describe("Mutation Resolvers: Authorization & Arguments", () => {

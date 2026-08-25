@@ -1,13 +1,15 @@
 import React from "react";
-import type { TicketPriority, TicketStatus } from "../types/api.ts";
+import type { SLAState, TicketPriority, TicketStatus } from "../types/api.ts";
 
 interface TicketFiltersProps {
   search: string;
   status: TicketStatus | "";
   priority: TicketPriority | "";
+  slaState: SLAState | "";
   onSearchChange: (val: string) => void;
   onStatusChange: (val: TicketStatus | "") => void;
   onPriorityChange: (val: TicketPriority | "") => void;
+  onSlaStateChange: (val: SLAState | "") => void;
   onReset: () => void;
 }
 
@@ -15,9 +17,11 @@ export const TicketFilters: React.FC<TicketFiltersProps> = ({
   search,
   status,
   priority,
+  slaState,
   onSearchChange,
   onStatusChange,
   onPriorityChange,
+  onSlaStateChange,
   onReset,
 }) => {
   return (
@@ -52,6 +56,17 @@ export const TicketFilters: React.FC<TicketFiltersProps> = ({
         <option value="HIGH">High</option>
         <option value="MEDIUM">Medium</option>
         <option value="LOW">Low</option>
+      </select>
+
+      <select
+        className="form-select"
+        value={slaState}
+        onChange={(e) => onSlaStateChange(e.target.value as SLAState | "")}
+      >
+        <option value="">All SLA States</option>
+        <option value="ON_TRACK">On Track</option>
+        <option value="AT_RISK">At Risk</option>
+        <option value="BREACHED">Breached</option>
       </select>
 
       <button

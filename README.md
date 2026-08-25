@@ -209,7 +209,7 @@ query GetTicket($id: ID!) {
   }
 }
 
-# Query tickets with cursor-based pagination and filters
+# Query tickets with cursor-based pagination and filters (status, priority, assignee, search, slaState)
 query GetTickets(
   $first: Int
   $after: String
@@ -217,6 +217,7 @@ query GetTickets(
   $status: TicketStatus
   $priority: TicketPriority
   $assigneeId: ID
+  $slaState: SLAState
 ) {
   tickets(
     first: $first
@@ -225,12 +226,20 @@ query GetTickets(
     status: $status
     priority: $priority
     assigneeId: $assigneeId
+    slaState: $slaState
   ) {
     nodes {
       id title priority status createdAt
       reporter { name }
       assignee { name }
-      sla { responseDueAt resolutionDueAt responseState resolutionState }
+      sla {
+        responseDueAt
+        resolutionDueAt
+        responseState
+        resolutionState
+        responseRemainingMinutes
+        resolutionRemainingMinutes
+      }
     }
     pageInfo {
       hasNextPage
@@ -259,6 +268,17 @@ mutation AddComment($ticketId: ID!, $body: String!) {
     id body createdAt author { name role }
   }
 }
+# Fetch aggregated dashboard metrics (role-scoped, dynamic SLA counts)
+query GetDashboard {
+  dashboard {
+    openTickets
+    inProgressTickets
+    resolvedTickets
+    closedTickets
+    atRiskTickets
+    breachedTickets
+  }
+}
 ```
 
 ---
@@ -272,19 +292,23 @@ mutation AddComment($ticketId: ID!, $body: String!) {
 - **Non-Business Days**: Saturday, Sunday, and dates in the `Holiday` table.
 - **Outside Hours Ingestion**: If a ticket is logged outside business hours, on weekends, or on holidays, the SLA clock begins at 09:00 IST on the immediately following business day.
 
-### Implemented Priority SLA Policies
+### Implemented Priority SLA Policies (BurdenOff Specification)
 | Priority | First Response Target | Resolution Target |
 |---|---|---|
 | **URGENT** | 1 business hour (60 min) | 4 business hours (240 min) |
-| **HIGH** | 2 business hours (120 min) | 8 business hours (480 min) |
-| **MEDIUM** | 4 business hours (240 min) | 16 business hours (960 min) |
-| **LOW** | 8 business hours (480 min) | 32 business hours (1920 min) |
+| **HIGH** | 4 business hours (240 min) | 24 business hours (1440 min) |
+| **MEDIUM** | 8 business hours (480 min) | 48 business hours (2880 min) |
+| **LOW** | 24 business hours (1440 min) | 72 business hours (4320 min) |
 
-### SLA State Definitions
-- **`ON_TRACK`**: Target completed on time, or remaining business window is $> 20\%$.
-- **`AT_RISK`**: Target not yet completed and remaining business window is $\le 20\%$ ($\le 0.20$).
-- **`BREACHED`**: Current clock has surpassed the deadline without completion, or completion occurred after the deadline.
-- **Historical Preservation**: Closed tickets preserve their final SLA state and do not recalculate with elapsed time.
+### SLA State Definitions & 75% Boundary Rule
+- **`ON_TRACK`**: 0% to 75% of SLA budget consumed (remaining business time $\ge 25\%$ of total SLA window). Target completed within deadline.
+- **`AT_RISK`**: More than 75% of SLA budget consumed (remaining business time $< 25\%$ of total SLA window) while ticket is active.
+- **`BREACHED`**: SLA deadline has passed without completion, or completion occurred after the deadline.
+
+### SLA Freezing & Remaining Business Minutes
+- **First Response Freezing**: When `firstRespondedAt` occurs (via first agent comment), the first-response SLA permanently freezes. Later time passage will never change an on-track response into breached.
+- **Resolution Freezing**: When `resolvedAt` occurs (or ticket is closed), the resolution SLA permanently freezes.
+- **Remaining Business Time**: The GraphQL `SLAInfo` type exposes `responseRemainingMinutes` and `resolutionRemainingMinutes`. For active SLAs, it returns remaining business minutes (returns 0 if past deadline, never negative). Completed SLAs return the remaining business minutes at the time of completion.
 
 ---
 

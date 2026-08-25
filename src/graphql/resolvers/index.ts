@@ -22,6 +22,10 @@ import {
   type TicketConnection,
   type CommentResult,
 } from "../../services/ticket.service.ts";
+import {
+  getDashboard,
+  type TicketDashboardResult,
+} from "../../services/dashboard.service.ts";
 import type { GraphQLContext } from "../../utils/auth.ts";
 
 export const resolvers = {
@@ -50,6 +54,13 @@ export const resolvers = {
       context: GraphQLContext
     ): Promise<TicketConnection> => {
       return getTickets(args, context.user);
+    },
+    dashboard: async (
+      _parent: unknown,
+      _args: unknown,
+      context: GraphQLContext
+    ): Promise<TicketDashboardResult> => {
+      return getDashboard(context.user);
     },
   },
   Mutation: {

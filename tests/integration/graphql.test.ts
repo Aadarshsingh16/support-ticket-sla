@@ -106,6 +106,8 @@ describe("Integration Tests: Real PostgreSQL & GraphQL Pipeline", () => {
     expect(result.reporter.email).toBe(reporterEmail);
     expect(result.sla.responseDueAt).toBeDefined();
     expect(result.sla.resolutionDueAt).toBeDefined();
+    expect(typeof result.sla.responseRemainingMinutes).toBe("number");
+    expect(typeof result.sla.resolutionRemainingMinutes).toBe("number");
   });
 
   it("3. should allow agent to be assigned to the ticket", async () => {
@@ -170,5 +172,17 @@ describe("Integration Tests: Real PostgreSQL & GraphQL Pipeline", () => {
     expect(connection.nodes.length).toBeGreaterThanOrEqual(1);
     expect(connection.nodes[0]?.id).toBe(createdTicketId);
     expect(connection.pageInfo.hasNextPage).toBe(false);
+  });
+
+  it("7. should return aggregated dashboard statistics from real PostgreSQL pipeline", async () => {
+    const stats = await resolvers.Query.dashboard({}, {}, reporterContext);
+
+    expect(stats).toBeDefined();
+    expect(stats.resolvedTickets).toBeGreaterThanOrEqual(1);
+    expect(typeof stats.openTickets).toBe("number");
+    expect(typeof stats.inProgressTickets).toBe("number");
+    expect(typeof stats.closedTickets).toBe("number");
+    expect(typeof stats.atRiskTickets).toBe("number");
+    expect(typeof stats.breachedTickets).toBe("number");
   });
 });

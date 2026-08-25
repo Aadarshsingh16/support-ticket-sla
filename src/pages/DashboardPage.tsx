@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { graphqlRequest } from "../client/graphql.ts";
 import type {
+  SLAState,
   Ticket,
   TicketConnection,
+  TicketDashboard,
   TicketPriority,
   TicketStatus,
   User,
@@ -21,6 +23,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   onSelectTicket,
 }) => {
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<TicketDashboard | null>(null);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [endCursor, setEndCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,10 +34,33 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<TicketStatus | "">("");
   const [priority, setPriority] = useState<TicketPriority | "">("");
+  const [slaState, setSlaState] = useState<SLAState | "">("");
 
   // Create form modal / toggle
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const fetchDashboardStats = useCallback(async () => {
+    const query = `
+      query GetDashboard {
+        dashboard {
+          openTickets
+          inProgressTickets
+          resolvedTickets
+          closedTickets
+          atRiskTickets
+          breachedTickets
+        }
+      }
+    `;
+
+    try {
+      const data = await graphqlRequest<{ dashboard: TicketDashboard }>(query);
+      setDashboardStats(data.dashboard);
+    } catch (err) {
+      console.error("Failed to load dashboard statistics:", err);
+    }
+  }, []);
 
   const fetchTickets = useCallback(
     async (cursor?: string | null, append = false) => {
@@ -52,6 +78,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           $search: String
           $status: TicketStatus
           $priority: TicketPriority
+          $slaState: SLAState
         ) {
           tickets(
             first: $first
@@ -59,6 +86,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             search: $search
             status: $status
             priority: $priority
+            slaState: $slaState
           ) {
             nodes {
               id
@@ -92,6 +120,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 resolutionDueAt
                 responseState
                 resolutionState
+                responseRemainingMinutes
+                resolutionRemainingMinutes
               }
             }
             pageInfo {
@@ -118,6 +148,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       if (priority) {
         variables.priority = priority;
       }
+      if (slaState) {
+        variables.slaState = slaState;
+      }
 
       try {
         const data = await graphqlRequest<{ tickets: TicketConnection }>(
@@ -140,8 +173,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         setLoadingMore(false);
       }
     },
-    [search, status, priority]
+    [search, status, priority, slaState]
   );
+
+  useEffect(() => {
+    fetchDashboardStats();
+  }, [fetchDashboardStats]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -181,12 +218,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     setSuccessMessage("Ticket created successfully!");
     setTimeout(() => setSuccessMessage(null), 4000);
     fetchTickets();
+    fetchDashboardStats();
   };
 
   const handleResetFilters = () => {
     setSearch("");
     setStatus("");
     setPriority("");
+    setSlaState("");
   };
 
   return (
@@ -219,6 +258,36 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </button>
       </div>
 
+      {/* Dashboard Statistics Overview */}
+      {dashboardStats && (
+        <div className="stats-grid">
+          <div className="stat-card stat-open">
+            <span className="stat-label">Open</span>
+            <span className="stat-value">{dashboardStats.openTickets}</span>
+          </div>
+          <div className="stat-card stat-inprogress">
+            <span className="stat-label">In Progress</span>
+            <span className="stat-value">{dashboardStats.inProgressTickets}</span>
+          </div>
+          <div className="stat-card stat-resolved">
+            <span className="stat-label">Resolved</span>
+            <span className="stat-value">{dashboardStats.resolvedTickets}</span>
+          </div>
+          <div className="stat-card stat-closed">
+            <span className="stat-label">Closed</span>
+            <span className="stat-value">{dashboardStats.closedTickets}</span>
+          </div>
+          <div className="stat-card stat-atrisk">
+            <span className="stat-label">At Risk</span>
+            <span className="stat-value">{dashboardStats.atRiskTickets}</span>
+          </div>
+          <div className="stat-card stat-breached">
+            <span className="stat-label">Breached</span>
+            <span className="stat-value">{dashboardStats.breachedTickets}</span>
+          </div>
+        </div>
+      )}
+
       {successMessage && (
         <div className="alert alert-success">{successMessage}</div>
       )}
@@ -234,9 +303,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         search={search}
         status={status}
         priority={priority}
+        slaState={slaState}
         onSearchChange={setSearch}
         onStatusChange={setStatus}
         onPriorityChange={setPriority}
+        onSlaStateChange={setSlaState}
         onReset={handleResetFilters}
       />
 
@@ -253,25 +324,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             No tickets found
           </h3>
           <p style={{ fontSize: "0.9rem" }}>
-            {search || status || priority
+            {search || status || priority || slaState
               ? "Try adjusting your search or filter parameters."
               : "No tickets have been created yet. Click '+ Create Ticket' to get started."}
           </p>
         </div>
       ) : (
-        <>
-          <div className="ticket-list">
-            {tickets.map((ticket) => (
-              <TicketCard
-                key={ticket.id}
-                ticket={ticket}
-                onClick={() => onSelectTicket(ticket.id)}
-              />
-            ))}
-          </div>
+        <div className="ticket-list">
+          {tickets.map((ticket) => (
+            <TicketCard
+              key={ticket.id}
+              ticket={ticket}
+              onClick={() => onSelectTicket(ticket.id)}
+            />
+          ))}
 
           {hasNextPage && (
-            <div style={{ textAlign: "center", marginTop: "2rem" }}>
+            <div style={{ textAlign: "center", marginTop: "1.5rem" }}>
               <button
                 type="button"
                 className="btn btn-secondary"
@@ -282,7 +351,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </button>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );

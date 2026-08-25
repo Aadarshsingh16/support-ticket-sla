@@ -55,11 +55,13 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, onClick }) => {
           label="First Response"
           state={ticket.sla.responseState}
           dueAt={ticket.sla.responseDueAt}
+          remainingMinutes={ticket.sla.responseRemainingMinutes}
         />
         <SLAStatusBadge
           label="Resolution"
           state={ticket.sla.resolutionState}
           dueAt={ticket.sla.resolutionDueAt}
+          remainingMinutes={ticket.sla.resolutionRemainingMinutes}
         />
       </div>
 

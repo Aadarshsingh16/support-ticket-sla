@@ -77,6 +77,8 @@ export const TicketPage: React.FC<TicketPageProps> = ({
             resolutionDueAt
             responseState
             resolutionState
+            responseRemainingMinutes
+            resolutionRemainingMinutes
           }
         }
       }
@@ -328,6 +330,7 @@ export const TicketPage: React.FC<TicketPageProps> = ({
                   label="Response"
                   state={ticket.sla.responseState}
                   dueAt={ticket.sla.responseDueAt}
+                  remainingMinutes={ticket.sla.responseRemainingMinutes}
                 />
                 <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", marginTop: "0.25rem" }}>
                   Actual: {formatDate(ticket.firstRespondedAt)}
@@ -342,6 +345,7 @@ export const TicketPage: React.FC<TicketPageProps> = ({
                   label="Resolution"
                   state={ticket.sla.resolutionState}
                   dueAt={ticket.sla.resolutionDueAt}
+                  remainingMinutes={ticket.sla.resolutionRemainingMinutes}
                 />
                 <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", marginTop: "0.25rem" }}>
                   Resolved: {formatDate(ticket.resolvedAt)}

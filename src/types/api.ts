@@ -29,6 +29,8 @@ export interface SLAInfo {
   resolutionDueAt: string;
   responseState: SLAState;
   resolutionState: SLAState;
+  responseRemainingMinutes: number;
+  resolutionRemainingMinutes: number;
 }
 
 export interface Ticket {
@@ -57,6 +59,15 @@ export interface PageInfo {
 export interface TicketConnection {
   nodes: Ticket[];
   pageInfo: PageInfo;
+}
+
+export interface TicketDashboard {
+  openTickets: number;
+  inProgressTickets: number;
+  resolvedTickets: number;
+  closedTickets: number;
+  atRiskTickets: number;
+  breachedTickets: number;
 }
 
 export interface AuthPayload {

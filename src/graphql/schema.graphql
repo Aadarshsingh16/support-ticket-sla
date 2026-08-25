@@ -28,6 +28,8 @@ type SLAInfo {
   resolutionDueAt: String!
   responseState: SLAState!
   resolutionState: SLAState!
+  responseRemainingMinutes: Int!
+  resolutionRemainingMinutes: Int!
 }
 
 type User {
@@ -81,6 +83,15 @@ type AuthPayload {
   user: User!
 }
 
+type TicketDashboard {
+  openTickets: Int!
+  inProgressTickets: Int!
+  resolvedTickets: Int!
+  closedTickets: Int!
+  atRiskTickets: Int!
+  breachedTickets: Int!
+}
+
 type Query {
   health: String!
   me: User
@@ -92,7 +103,9 @@ type Query {
     status: TicketStatus
     priority: TicketPriority
     assigneeId: ID
+    slaState: SLAState
   ): TicketConnection!
+  dashboard: TicketDashboard!
 }
 
 type Mutation {

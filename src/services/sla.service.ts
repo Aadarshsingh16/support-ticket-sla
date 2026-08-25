@@ -7,18 +7,25 @@
  * - Non-Business Days: Saturday, Sunday, and any dates registered in the Holiday table.
  *
  * SLA Policies (by Priority):
- * - URGENT: First Response: 1 business hour, Resolution: 4 business hours
- * - HIGH:   First Response: 2 business hours, Resolution: 8 business hours
- * - MEDIUM: First Response: 4 business hours, Resolution: 16 business hours
- * - LOW:    First Response: 8 business hours, Resolution: 32 business hours
+ * - URGENT: First Response: 1 business hour (60m),   Resolution: 4 business hours (240m)
+ * - HIGH:   First Response: 4 business hours (240m),  Resolution: 24 business hours (1440m)
+ * - MEDIUM: First Response: 8 business hours (480m),  Resolution: 48 business hours (2880m)
+ * - LOW:    First Response: 24 business hours (1440m), Resolution: 72 business hours (4320m)
  *
- * AT_RISK Definition:
- * - When an SLA target is not yet completed and remaining business time <= 20% of the total SLA window.
+ * SLA State Rules:
+ * - ON_TRACK: 0% to 75% of SLA budget consumed (remaining business time >= 25% of SLA window).
+ * - AT_RISK:  More than 75% of SLA budget consumed (remaining business time < 25% of SLA window).
+ * - BREACHED: SLA deadline has passed without completion, or completed after deadline.
+ *
+ * SLA Freezing:
+ * - First response SLA freezes permanently when `firstRespondedAt` is set.
+ * - Resolution SLA freezes permanently when `resolvedAt` is set (or ticket is closed).
+ * - Completed SLAs preserve their final state and completed remaining business minutes.
  *
  * Design Decision:
- * - SLA states and deadlines are dynamically derived from ticket timestamps, priority policies,
- *   and holidays rather than stored in a separate table. This ensures historical consistency,
- *   eliminates sync drift, and supports policy auditability.
+ * - SLA states, deadlines, and remaining minutes are dynamically derived from ticket timestamps,
+ *   priority policies, and holidays rather than stored in PostgreSQL. This ensures real-time accuracy,
+ *   eliminates sync drift, and supports full auditability.
  */
 
 import { prisma } from "../lib/prisma.ts";
@@ -39,6 +46,8 @@ export interface SLAInfo {
   resolutionDueAt: string;
   responseState: SLAState;
   resolutionState: SLAState;
+  responseRemainingMinutes: number;
+  resolutionRemainingMinutes: number;
 }
 
 export interface SLAPolicy {
@@ -52,16 +61,16 @@ export const SLA_POLICIES: Record<TicketPriority, SLAPolicy> = {
     resolutionHours: 4,
   },
   [TicketPriority.HIGH]: {
-    responseHours: 2,
-    resolutionHours: 8,
+    responseHours: 4,
+    resolutionHours: 24,
   },
   [TicketPriority.MEDIUM]: {
-    responseHours: 4,
-    resolutionHours: 16,
+    responseHours: 8,
+    resolutionHours: 48,
   },
   [TicketPriority.LOW]: {
-    responseHours: 8,
-    resolutionHours: 32,
+    responseHours: 24,
+    resolutionHours: 72,
   },
 };
 
@@ -74,7 +83,8 @@ export const BUSINESS_HOURS = {
   endMinute: 0,
 };
 
-export const AT_RISK_THRESHOLD = 0.2; // <= 20% remaining business time
+// AT_RISK threshold: > 75% consumed (i.e. < 25% remaining)
+export const CONSUMED_THRESHOLD_FOR_AT_RISK = 0.75;
 
 const IST_OFFSET_MS = 330 * 60 * 1000;
 
@@ -327,6 +337,108 @@ export async function fetchHolidaysSet(): Promise<Set<string>> {
   return holidaySet;
 }
 
+export function evaluateResponse(
+  ticket: Pick<Ticket, "firstRespondedAt" | "status" | "updatedAt">,
+  responseDueAt: Date,
+  totalResponseMinutes: number,
+  holidays: Set<string>,
+  now: Date
+): { state: SLAState; remainingMinutes: number } {
+  // 1. If response has already occurred, freeze response SLA
+  if (ticket.firstRespondedAt !== null) {
+    if (ticket.firstRespondedAt <= responseDueAt) {
+      const remaining = calculateRemainingBusinessMinutes(
+        ticket.firstRespondedAt,
+        responseDueAt,
+        holidays
+      );
+      return { state: SLAState.ON_TRACK, remainingMinutes: remaining };
+    } else {
+      return { state: SLAState.BREACHED, remainingMinutes: 0 };
+    }
+  }
+
+  // 2. If ticket was closed without response
+  if (ticket.status === TicketStatus.CLOSED) {
+    if (ticket.updatedAt <= responseDueAt) {
+      const remaining = calculateRemainingBusinessMinutes(
+        ticket.updatedAt,
+        responseDueAt,
+        holidays
+      );
+      return { state: SLAState.ON_TRACK, remainingMinutes: remaining };
+    } else {
+      return { state: SLAState.BREACHED, remainingMinutes: 0 };
+    }
+  }
+
+  // 3. Dynamic evaluation for active, un-responded ticket
+  if (now >= responseDueAt) {
+    return { state: SLAState.BREACHED, remainingMinutes: 0 };
+  }
+
+  const remaining = calculateRemainingBusinessMinutes(now, responseDueAt, holidays);
+  const consumedRatio = (totalResponseMinutes - remaining) / totalResponseMinutes;
+
+  const state =
+    consumedRatio > CONSUMED_THRESHOLD_FOR_AT_RISK
+      ? SLAState.AT_RISK
+      : SLAState.ON_TRACK;
+
+  return { state, remainingMinutes: Math.max(0, remaining) };
+}
+
+export function evaluateResolution(
+  ticket: Pick<Ticket, "resolvedAt" | "status" | "updatedAt">,
+  resolutionDueAt: Date,
+  totalResolutionMinutes: number,
+  holidays: Set<string>,
+  now: Date
+): { state: SLAState; remainingMinutes: number } {
+  // 1. If resolution has already occurred, freeze resolution SLA
+  if (ticket.resolvedAt !== null) {
+    if (ticket.resolvedAt <= resolutionDueAt) {
+      const remaining = calculateRemainingBusinessMinutes(
+        ticket.resolvedAt,
+        resolutionDueAt,
+        holidays
+      );
+      return { state: SLAState.ON_TRACK, remainingMinutes: remaining };
+    } else {
+      return { state: SLAState.BREACHED, remainingMinutes: 0 };
+    }
+  }
+
+  // 2. If ticket was closed
+  if (ticket.status === TicketStatus.CLOSED) {
+    if (ticket.updatedAt <= resolutionDueAt) {
+      const remaining = calculateRemainingBusinessMinutes(
+        ticket.updatedAt,
+        resolutionDueAt,
+        holidays
+      );
+      return { state: SLAState.ON_TRACK, remainingMinutes: remaining };
+    } else {
+      return { state: SLAState.BREACHED, remainingMinutes: 0 };
+    }
+  }
+
+  // 3. Dynamic evaluation for active, unresolved ticket
+  if (now >= resolutionDueAt) {
+    return { state: SLAState.BREACHED, remainingMinutes: 0 };
+  }
+
+  const remaining = calculateRemainingBusinessMinutes(now, resolutionDueAt, holidays);
+  const consumedRatio = (totalResolutionMinutes - remaining) / totalResolutionMinutes;
+
+  const state =
+    consumedRatio > CONSUMED_THRESHOLD_FOR_AT_RISK
+      ? SLAState.AT_RISK
+      : SLAState.ON_TRACK;
+
+  return { state, remainingMinutes: Math.max(0, remaining) };
+}
+
 export function evaluateResponseState(
   ticket: Pick<Ticket, "firstRespondedAt" | "status" | "updatedAt">,
   responseDueAt: Date,
@@ -334,25 +446,8 @@ export function evaluateResponseState(
   holidays: Set<string>,
   now: Date
 ): SLAState {
-  if (ticket.firstRespondedAt !== null) {
-    return ticket.firstRespondedAt <= responseDueAt
-      ? SLAState.ON_TRACK
-      : SLAState.BREACHED;
-  }
-
-  if (ticket.status === TicketStatus.CLOSED) {
-    // Closed without response -> breached unless closed before response deadline
-    return ticket.updatedAt <= responseDueAt ? SLAState.ON_TRACK : SLAState.BREACHED;
-  }
-
-  if (now >= responseDueAt) {
-    return SLAState.BREACHED;
-  }
-
-  const remaining = calculateRemainingBusinessMinutes(now, responseDueAt, holidays);
-  const ratio = remaining / totalResponseMinutes;
-
-  return ratio <= AT_RISK_THRESHOLD ? SLAState.AT_RISK : SLAState.ON_TRACK;
+  return evaluateResponse(ticket, responseDueAt, totalResponseMinutes, holidays, now)
+    .state;
 }
 
 export function evaluateResolutionState(
@@ -362,26 +457,8 @@ export function evaluateResolutionState(
   holidays: Set<string>,
   now: Date
 ): SLAState {
-  if (ticket.resolvedAt !== null) {
-    return ticket.resolvedAt <= resolutionDueAt
-      ? SLAState.ON_TRACK
-      : SLAState.BREACHED;
-  }
-
-  if (ticket.status === TicketStatus.CLOSED) {
-    return ticket.updatedAt <= resolutionDueAt
-      ? SLAState.ON_TRACK
-      : SLAState.BREACHED;
-  }
-
-  if (now >= resolutionDueAt) {
-    return SLAState.BREACHED;
-  }
-
-  const remaining = calculateRemainingBusinessMinutes(now, resolutionDueAt, holidays);
-  const ratio = remaining / totalResolutionMinutes;
-
-  return ratio <= AT_RISK_THRESHOLD ? SLAState.AT_RISK : SLAState.ON_TRACK;
+  return evaluateResolution(ticket, resolutionDueAt, totalResolutionMinutes, holidays, now)
+    .state;
 }
 
 export async function calculateTicketSLA(
@@ -411,7 +488,7 @@ export async function calculateTicketSLA(
     holidaySet
   );
 
-  const responseState = evaluateResponseState(
+  const response = evaluateResponse(
     ticket,
     responseDueAt,
     totalResponseMinutes,
@@ -419,7 +496,7 @@ export async function calculateTicketSLA(
     now
   );
 
-  const resolutionState = evaluateResolutionState(
+  const resolution = evaluateResolution(
     ticket,
     resolutionDueAt,
     totalResolutionMinutes,
@@ -430,7 +507,9 @@ export async function calculateTicketSLA(
   return {
     responseDueAt: responseDueAt.toISOString(),
     resolutionDueAt: resolutionDueAt.toISOString(),
-    responseState,
-    resolutionState,
+    responseState: response.state,
+    resolutionState: resolution.state,
+    responseRemainingMinutes: response.remainingMinutes,
+    resolutionRemainingMinutes: resolution.remainingMinutes,
   };
 }
