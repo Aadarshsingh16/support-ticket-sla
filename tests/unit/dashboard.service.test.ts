@@ -39,7 +39,7 @@ describe("Unit/Service Tests: Dashboard Statistics & Authorization Partitioning"
     });
     agent2Id = a2.id;
 
-    const pastDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const pastDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
 
     // Reporter 1 Tickets:
     // T1: OPEN (LOW) -> ON_TRACK
@@ -70,7 +70,7 @@ describe("Unit/Service Tests: Dashboard Statistics & Authorization Partitioning"
     });
     createdTicketIds.push(t2.id);
 
-    // T3: RESOLVED (URGENT past deadline) -> RESOLVED & BREACHED
+    // T3: RESOLVED (URGENT resolved 10 days later) -> RESOLVED & BREACHED
     const t3 = await prisma.ticket.create({
       data: {
         title: "Rep1 Resolved Breached Ticket",
@@ -81,7 +81,7 @@ describe("Unit/Service Tests: Dashboard Statistics & Authorization Partitioning"
         assigneeId: agent1Id,
         createdAt: pastDate,
         firstRespondedAt: new Date(pastDate.getTime() + 30 * 60 * 1000),
-        resolvedAt: new Date(pastDate.getTime() + 48 * 60 * 60 * 1000),
+        resolvedAt: new Date(), // Resolved today (10 days later) -> BREACHED
       },
     });
     createdTicketIds.push(t3.id);

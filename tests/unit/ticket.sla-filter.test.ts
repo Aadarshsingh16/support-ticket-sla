@@ -55,8 +55,8 @@ describe("Unit/Integration Tests: Ticket SLA State Filtering & Scopes", () => {
     });
     createdTicketIds.push(t1.id);
 
-    // T2: URGENT ticket created 5 days ago without response -> BREACHED
-    const pastDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    // T2: URGENT ticket created 10 days ago without response -> BREACHED
+    const pastDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
     const t2 = await prisma.ticket.create({
       data: {
         title: "Production database deadlock",
@@ -70,7 +70,7 @@ describe("Unit/Integration Tests: Ticket SLA State Filtering & Scopes", () => {
     });
     createdTicketIds.push(t2.id);
 
-    // T3: URGENT ticket with resolution occurring 48h later -> BREACHED resolution
+    // T3: URGENT ticket resolved today (10 days later) -> BREACHED resolution
     const t3 = await prisma.ticket.create({
       data: {
         title: "Payment webhook timeout issue",
@@ -81,7 +81,7 @@ describe("Unit/Integration Tests: Ticket SLA State Filtering & Scopes", () => {
         assigneeId: agent2Id,
         createdAt: pastDate,
         firstRespondedAt: new Date(pastDate.getTime() + 30 * 60 * 1000),
-        resolvedAt: new Date(pastDate.getTime() + 48 * 60 * 60 * 1000), // 48h after creation for 4h URGENT SLA -> BREACHED
+        resolvedAt: new Date(), // Resolved 10 days later -> definitely BREACHED
       },
     });
     createdTicketIds.push(t3.id);

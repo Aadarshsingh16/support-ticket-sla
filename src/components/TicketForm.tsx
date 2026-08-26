@@ -64,9 +64,9 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSubmit, onCancel }) =>
             onChange={(e) => setPriority(e.target.value as TicketPriority)}
             disabled={loading}
           >
-            <option value="LOW">Low (8h Response / 32h Resolution)</option>
-            <option value="MEDIUM">Medium (4h Response / 16h Resolution)</option>
-            <option value="HIGH">High (2h Response / 8h Resolution)</option>
+            <option value="LOW">Low (24h Response / 72h Resolution)</option>
+            <option value="MEDIUM">Medium (8h Response / 48h Resolution)</option>
+            <option value="HIGH">High (4h Response / 24h Resolution)</option>
             <option value="URGENT">Urgent (1h Response / 4h Resolution)</option>
           </select>
         </div>
