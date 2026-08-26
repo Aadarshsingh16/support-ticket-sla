@@ -27,7 +27,7 @@ Key capabilities:
 - **Database & ORM**: PostgreSQL 16 (Docker) with [Prisma 7.10.0](https://www.prisma.io) and official `@prisma/adapter-pg` driver adapter
 - **Authentication**: JWT (`jsonwebtoken`) with `bcryptjs` password hashing (10 salt rounds)
 - **Frontend**: [React 19](https://react.dev) + [Vite](https://vitejs.dev) + Vanilla CSS (Design Tokens & Inter Typography)
-- **Testing**: Native `bun:test` runner (58 tests covering unit, resolver, calendar math, and PostgreSQL integration)
+- **Testing**: Native `bun:test` runner (84 tests covering unit, resolver, calendar math, SLA filtering, dashboard aggregation, and PostgreSQL integration)
 
 ---
 
@@ -48,7 +48,8 @@ Key capabilities:
                              ▼
 ┌─────────────────────────────────────────────────────────┐
 │                      Service Layer                      │
-│   auth.service.ts   •   ticket.service.ts   •   sla.service.ts   │
+│   auth.service.ts   •   ticket.service.ts               │
+│   sla.service.ts    •   dashboard.service.ts            │
 └────────────────────────────┬────────────────────────────┘
                              │  Prisma 7 Client (@prisma/adapter-pg)
                              ▼
@@ -156,8 +157,8 @@ bun run sanity
 ```
 
 **Test Verification Status**:
-- **58 tests passing** (0 failures)
-- **122 assertions**
+- **84 tests passing** (0 failures across 8 test suites)
+- **207 assertions**
 - Strict TypeScript check: **0 errors**, **0 `any`**
 
 ---
