@@ -224,6 +224,11 @@ export async function createTicket(
     });
   }
 
+  const defaultAgent = await prisma.user.findFirst({
+    where: { role: Role.AGENT },
+    orderBy: { createdAt: "asc" },
+  });
+
   const ticket = await prisma.ticket.create({
     data: {
       title: trimmedTitle,
@@ -231,7 +236,7 @@ export async function createTicket(
       priority: input.priority,
       status: TicketStatus.OPEN,
       reporterId: user.userId,
-      assigneeId: null,
+      assigneeId: defaultAgent?.id ?? null,
     },
     include: {
       reporter: true,
