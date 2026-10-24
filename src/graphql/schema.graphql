@@ -1,0 +1,135 @@
+enum Role {
+  REPORTER
+  AGENT
+}
+
+enum TicketPriority {
+  URGENT
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum SLAState {
+  ON_TRACK
+  AT_RISK
+  BREACHED
+}
+
+type SLAInfo {
+  responseDueAt: String!
+  resolutionDueAt: String!
+  responseState: SLAState!
+  resolutionState: SLAState!
+  responseRemainingMinutes: Int!
+  resolutionRemainingMinutes: Int!
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  role: Role!
+  createdAt: String!
+  updatedAt: String!
+}
+
+type Comment {
+  id: ID!
+  ticketId: String!
+  authorId: String!
+  author: User!
+  body: String!
+  createdAt: String!
+}
+
+type Ticket {
+  id: ID!
+  title: String!
+  description: String!
+  priority: TicketPriority!
+  status: TicketStatus!
+  reporterId: String!
+  assigneeId: String
+  reporter: User!
+  assignee: User
+  createdAt: String!
+  updatedAt: String!
+  firstRespondedAt: String
+  resolvedAt: String
+  comments: [Comment!]!
+  sla: SLAInfo!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+type TicketConnection {
+  nodes: [Ticket!]!
+  pageInfo: PageInfo!
+}
+
+type AuthPayload {
+  token: String!
+  user: User!
+}
+
+type TicketDashboard {
+  openTickets: Int!
+  inProgressTickets: Int!
+  resolvedTickets: Int!
+  closedTickets: Int!
+  atRiskTickets: Int!
+  breachedTickets: Int!
+}
+
+type Query {
+  health: String!
+  me: User
+  ticket(id: ID!): Ticket
+  tickets(
+    first: Int
+    after: String
+    search: String
+    status: TicketStatus
+    priority: TicketPriority
+    assigneeId: ID
+    slaState: SLAState
+  ): TicketConnection!
+  dashboard: TicketDashboard!
+}
+
+type Mutation {
+  register(name: String!, email: String!, password: String!): AuthPayload!
+  login(email: String!, password: String!): AuthPayload!
+  createTicket(
+    title: String!
+    description: String!
+    priority: TicketPriority!
+  ): Ticket!
+  updateTicket(
+    id: ID!
+    title: String
+    description: String
+    priority: TicketPriority
+    status: TicketStatus
+  ): Ticket!
+  deleteTicket(id: ID!): Boolean!
+  assignTicket(
+    ticketId: ID!
+    agentId: ID!
+  ): Ticket!
+  addComment(
+    ticketId: ID!
+    body: String!
+  ): Comment!
+}

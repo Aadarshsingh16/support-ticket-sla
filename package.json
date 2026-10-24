@@ -7,19 +7,37 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/bun": "latest",
     "@types/jsonwebtoken": "^9.0.10",
-    "prisma": "7.10.0"
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.0",
+    "prisma": "7.10.0",
+    "vite": "^8.2.2"
   },
   "peerDependencies": {
     "typescript": "^7"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "bcryptjs": "^3.0.3",
     "graphql": "^17.0.2",
     "graphql-yoga": "^5.22.0",
-    "jsonwebtoken": "^9.0.3"
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "scripts": {
+    "dev": "bun run src/server.ts",
+    "dev:frontend": "vite",
+    "build": "vite build",
+    "test": "bun test",
+    "test:unit": "bun test tests/unit",
+    "test:integration": "bun test tests/integration",
+    "gendb": "prisma generate",
+    "typecheck": "tsc --noEmit",
+    "sanity": "bun run typecheck && bun test && bun run build",
     "postinstall": "prisma skills sync || exit 0"
   }
 }
